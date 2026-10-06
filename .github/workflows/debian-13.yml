@@ -43,6 +43,11 @@ jobs:
           # Ubuntu's AppArmor profile on these runners. With it unavailable,
           # libguestfs falls back to QEMU user networking, which works.
           if [ -x /usr/bin/passt ]; then sudo mv /usr/bin/passt /usr/bin/passt.disabled; fi
+          # libguestfs copies the host resolv.conf into the appliance. The
+          # runner's points at the systemd-resolved stub (127.0.0.53), which
+          # inside the appliance is the appliance itself. Use the real
+          # upstream resolvers instead.
+          sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
           # Use KVM when the runner exposes it; libguestfs falls back to TCG.
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
