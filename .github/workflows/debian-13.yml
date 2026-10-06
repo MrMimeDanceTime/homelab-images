@@ -39,10 +39,12 @@ jobs:
           # libguestfs boots its appliance with the host kernel, which Ubuntu
           # ships root-only readable.
           sudo chmod 0644 /boot/vmlinuz-*
-          # passt (libguestfs' default appliance networking) exits 1 under
-          # Ubuntu's AppArmor profile on these runners. With it unavailable,
-          # libguestfs falls back to QEMU user networking, which works.
-          if [ -x /usr/bin/passt ]; then sudo mv /usr/bin/passt /usr/bin/passt.disabled; fi
+          # libguestfs networks its appliance through passt, and Ubuntu's
+          # AppArmor profile for passt denies creating the socket and PID file
+          # libguestfs asks for under /run/user. Unload that profile; the
+          # runner is a disposable VM.
+          profile=$(grep -ls '^profile passt' /etc/apparmor.d/* | head -1)
+          sudo apparmor_parser -R "$profile"
           # libguestfs copies the host resolv.conf into the appliance. The
           # runner's points at the systemd-resolved stub (127.0.0.53), which
           # inside the appliance is the appliance itself. Use the real
@@ -53,22 +55,6 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
-
-      - name: Diagnose appliance networking (temporary)
-        if: github.event_name == 'pull_request'
-        env:
-          LIBGUESTFS_BACKEND: direct
-        run: |
-          set +e
-          echo "== host resolv.conf"; cat /etc/resolv.conf
-          echo "== passt version"; /usr/bin/passt.disabled --version 2>&1 | head -1
-          echo "== appliance WITH passt"
-          sudo mv /usr/bin/passt.disabled /usr/bin/passt
-          LIBGUESTFS_DEBUG=1 guestfish --network -a /dev/null run : debug sh "cat /etc/resolv.conf; ip -4 addr; ip route; getent hosts deb.debian.org" 2>&1 | grep -iE 'passt|resolv|nameserver|inet |default via|deb.debian|error|denied' | head -40
-          sudo mv /usr/bin/passt /usr/bin/passt.disabled
-          echo "== appliance WITHOUT passt"
-          guestfish --network -a /dev/null run : debug sh "cat /etc/resolv.conf; ip -4 addr; ip route; getent hosts deb.debian.org" 2>&1 | head -30
-          echo "== dmesg apparmor"; sudo dmesg | grep -i apparmor | grep -i passt | tail -5
 
       - name: Build
         id: build
