@@ -22,18 +22,20 @@ build_id=$(curl -fsSL "$BASE/" \
   | sort -u | tail -1)
 [ -n "$build_id" ] || { echo "could not find a dated build under $BASE" >&2; exit 1; }
 src="$BASE/$build_id"
+# Dated directories carry the build id in the file name; only latest/ does not.
+file="$UPSTREAM-$build_id.qcow2"
 name="debian-13-pve-$build_id-$(date -u +%Y%m%d)"
 
 mkdir -p "$OUT_DIR"
 cd "$OUT_DIR"
 
-echo "Source: $src/$UPSTREAM.qcow2"
-curl -fsSLO "$src/$UPSTREAM.qcow2"
+echo "Source: $src/$file"
+curl -fsSLO "$src/$file"
 curl -fsSLO "$src/SHA512SUMS"
-grep " $UPSTREAM.qcow2\$" SHA512SUMS | sha512sum -c -
-upstream_sha512=$(grep " $UPSTREAM.qcow2\$" SHA512SUMS | cut -d' ' -f1)
+grep " $file\$" SHA512SUMS | sha512sum -c -
+upstream_sha512=$(grep " $file\$" SHA512SUMS | cut -d' ' -f1)
 
-cp "$UPSTREAM.qcow2" work.qcow2
+cp "$file" work.qcow2
 
 virt-customize -a work.qcow2 \
   --update \
@@ -58,7 +60,7 @@ fi
 
 virt-sparsify --quiet --in-place work.qcow2
 qemu-img convert -c -O qcow2 work.qcow2 "$name.qcow2"
-rm -f work.qcow2 "$UPSTREAM.qcow2" SHA512SUMS
+rm -f work.qcow2 "$file" SHA512SUMS
 
 sha512sum "$name.qcow2" > "$name.qcow2.sha512"
 
@@ -68,7 +70,7 @@ cat > build-info.json <<EOF
   "image": "$name.qcow2",
   "sha512": "$(cut -d' ' -f1 "$name.qcow2.sha512")",
   "upstream": {
-    "url": "$src/$UPSTREAM.qcow2",
+    "url": "$src/$file",
     "build": "$build_id",
     "sha512": "$upstream_sha512"
   },
