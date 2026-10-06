@@ -54,6 +54,22 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
 
+      - name: Diagnose appliance networking (temporary)
+        if: github.event_name == 'pull_request'
+        env:
+          LIBGUESTFS_BACKEND: direct
+        run: |
+          set +e
+          echo "== host resolv.conf"; cat /etc/resolv.conf
+          echo "== passt version"; /usr/bin/passt.disabled --version 2>&1 | head -1
+          echo "== appliance WITH passt"
+          sudo mv /usr/bin/passt.disabled /usr/bin/passt
+          LIBGUESTFS_DEBUG=1 guestfish --network -a /dev/null run : debug sh "cat /etc/resolv.conf; ip -4 addr; ip route; getent hosts deb.debian.org" 2>&1 | grep -iE 'passt|resolv|nameserver|inet |default via|deb.debian|error|denied' | head -40
+          sudo mv /usr/bin/passt /usr/bin/passt.disabled
+          echo "== appliance WITHOUT passt"
+          guestfish --network -a /dev/null run : debug sh "cat /etc/resolv.conf; ip -4 addr; ip route; getent hosts deb.debian.org" 2>&1 | head -30
+          echo "== dmesg apparmor"; sudo dmesg | grep -i apparmor | grep -i passt | tail -5
+
       - name: Build
         id: build
         env:
