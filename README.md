@@ -10,7 +10,7 @@ which downloads a pinned release and turns it into a template on Ceph.
 
 | Image | Built from | Adds |
 |---|---|---|
-| `debian-13-pve-<build>-<date>` | Newest dated Debian 13 `genericcloud` build | Current updates, `qemu-guest-agent` |
+| `debian-13-pve-<build>-<date>` | Newest dated Debian 13 `genericcloud` build | `qemu-guest-agent` |
 
 Official cloud images target public clouds, which do not use the QEMU guest
 agent, so none of them ship it. Proxmox needs it to report IP addresses and to
@@ -20,8 +20,9 @@ shut guests down cleanly.
 
 1. Finds the newest dated build under `cloud.debian.org/images/cloud/trixie/`
    and checks the download against its `SHA512SUMS`.
-2. Runs `virt-customize` offline: `apt upgrade`, installs `qemu-guest-agent`,
-   deletes SSH host keys and empties `/etc/machine-id` so every clone
+2. Downloads `qemu-guest-agent` and its dependencies from Debian 13 in a
+   throwaway container, then runs `virt-customize` with networking off:
+   installs them with `dpkg`, deletes SSH host keys and empties `/etc/machine-id` so every clone
    generates its own identity on first boot.
 3. Verifies the result instead of trusting the tool: the agent package must
    be installed, and no host keys or machine ID may remain.
@@ -30,8 +31,9 @@ shut guests down cleanly.
    signed build provenance attestation.
 
 Pull requests run the full build and verification but never publish. A
-scheduled run every Monday rebuilds so the base carries current security
-updates.
+scheduled run every Monday picks up new upstream builds, which Debian
+publishes with updates applied. `unattended-upgrades` ships in the image and
+patches on first boot.
 
 ## Verifying a release
 

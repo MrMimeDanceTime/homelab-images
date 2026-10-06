@@ -2,7 +2,7 @@
 # Bake a Proxmox-ready Debian 13 image from the official genericcloud build.
 #
 # Source:  newest dated build under cloud.debian.org/images/cloud/trixie/
-# Changes: apt upgrade, qemu-guest-agent installed, per-instance identity
+# Changes: qemu-guest-agent installed, per-instance identity
 #          (machine-id, SSH host keys) wiped so every clone generates its own.
 # Output:  $OUT_DIR/<name>.qcow2, <name>.qcow2.sha512, build-info.json
 #
@@ -37,14 +37,22 @@ upstream_sha512=$(grep " $file\$" SHA512SUMS | cut -d' ' -f1)
 
 cp "$file" work.qcow2
 
-virt-customize -a work.qcow2 \
-  --update \
-  --install qemu-guest-agent \
-  --run-command 'apt-get clean' \
+# Fetch the agent and its dependencies from Debian 13 in a throwaway
+# container, so the image is customized offline. Networking inside the
+# libguestfs appliance is unreliable on CI runners (passt vs AppArmor).
+mkdir -p debs
+docker run --rm -v "$PWD/debs:/out" debian:trixie bash -c '
+  apt-get update -qq &&
+  apt-get install -y -qq --download-only --no-install-recommends qemu-guest-agent &&
+  cp /var/cache/apt/archives/*.deb /out/'
+
+virt-customize -a work.qcow2 --no-network \
+  --copy-in debs:/tmp \
+  --run-command 'dpkg -i /tmp/debs/*.deb && rm -rf /tmp/debs' \
   --run-command 'rm -f /etc/ssh/ssh_host_*' \
   --truncate /etc/machine-id
 
-# virt-customize --install has been seen to fail quietly. Check the package
+# Package installs inside an image can fail quietly. Check the package
 # really landed, and that no host keys or machine-id survived.
 status=$(virt-cat -a work.qcow2 /var/lib/dpkg/status \
   | awk '/^Package: qemu-guest-agent$/ {found=1} found && /^Status:/ {print; exit}')
@@ -60,7 +68,7 @@ fi
 
 virt-sparsify --quiet --in-place work.qcow2
 qemu-img convert -c -O qcow2 work.qcow2 "$name.qcow2"
-rm -f work.qcow2 "$file" SHA512SUMS
+rm -rf work.qcow2 "$file" SHA512SUMS debs
 
 sha512sum "$name.qcow2" > "$name.qcow2.sha512"
 

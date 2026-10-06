@@ -1,6 +1,6 @@
 name: Debian 13
 
-# Weekly rebuild so the base image carries current security updates.
+# Weekly rebuild picks up new upstream Debian builds.
 # Pull requests build and verify but never publish.
 
 on:
@@ -39,17 +39,6 @@ jobs:
           # libguestfs boots its appliance with the host kernel, which Ubuntu
           # ships root-only readable.
           sudo chmod 0644 /boot/vmlinuz-*
-          # libguestfs networks its appliance through passt, and Ubuntu's
-          # AppArmor profile for passt denies creating the socket and PID file
-          # libguestfs asks for under /run/user. Unload that profile; the
-          # runner is a disposable VM.
-          profile=$(grep -ls '^profile passt' /etc/apparmor.d/* | head -1)
-          sudo apparmor_parser -R "$profile"
-          # libguestfs copies the host resolv.conf into the appliance. The
-          # runner's points at the systemd-resolved stub (127.0.0.53), which
-          # inside the appliance is the appliance itself. Use the real
-          # upstream resolvers instead.
-          sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
           # Use KVM when the runner exposes it; libguestfs falls back to TCG.
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
