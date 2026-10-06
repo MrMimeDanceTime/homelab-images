@@ -1,0 +1,81 @@
+name: Debian 13
+
+# Weekly rebuild so the base image carries current security updates.
+# Pull requests build and verify but never publish.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "debian-13/**"
+      - ".github/workflows/debian-13.yml"
+  schedule:
+    - cron: "23 7 * * 1" # Mondays 07:23 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: debian-13-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install image tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libguestfs-tools qemu-utils
+          # libguestfs boots its appliance with the host kernel, which Ubuntu
+          # ships root-only readable.
+          sudo chmod 0644 /boot/vmlinuz-*
+          # Use KVM when the runner exposes it; libguestfs falls back to TCG.
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Build
+        id: build
+        env:
+          LIBGUESTFS_BACKEND: direct
+          OUT_DIR: out
+        run: bash debian-13/build.sh
+
+      - name: Attest provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: out/${{ steps.build.outputs.name }}.qcow2
+
+      - name: Publish release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.build.outputs.name }}
+        run: |
+          if gh release view "$NAME" > /dev/null 2>&1; then
+            echo "Release $NAME already exists; nothing to publish."
+            exit 0
+          fi
+          upstream=$(jq -r .upstream.url out/build-info.json)
+          agent=$(jq -r .qemu_guest_agent out/build-info.json)
+          sha=$(jq -r .sha512 out/build-info.json)
+          gh release create "$NAME" \
+            "out/$NAME.qcow2" "out/$NAME.qcow2.sha512" out/build-info.json \
+            --title "$NAME" \
+            --notes "Official Debian 13 genericcloud with current updates and qemu-guest-agent \`$agent\`.
+
+          - Source: $upstream
+          - SHA-512: \`$sha\`
+          - Provenance: \`gh attestation verify $NAME.qcow2 --repo ${{ github.repository }}\`"
