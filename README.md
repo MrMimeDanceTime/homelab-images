@@ -57,3 +57,10 @@ Needs a Linux host with `libguestfs-tools` and `qemu-utils`:
 ```bash
 OUT_DIR=out bash debian-13/build.sh
 ```
+
+## Known issues
+
+- [#2](https://github.com/MrMimeDanceTime/homelab-images/issues/2): a clone
+  occasionally hangs on its first boot with systemd's startup jobs never
+  finishing. A cold stop and start recovers it. Watch the boot through a
+  serial console (`qm terminal <vmid>`) to capture a second sample.
